@@ -50,8 +50,9 @@ import threading
 import time
 import yaml
 
-from Crypto import Random
-from Crypto.Cipher import AES
+from Cryptodome.Cipher import AES
+from Cryptodome.Random import random
+
 import gnupg
 
 try:
@@ -225,7 +226,7 @@ class _ROSBagAesCbcEncryptor(_ROSBagEncryptor):
         f.seek(chunk_data_pos)
         chunk = _read(f, chunk_size)
         # Encrypt chunk
-        iv = Random.new().read(AES.block_size)
+        iv = random.getrandbits(AES.block_size)
         f.seek(chunk_data_pos)
         f.write(iv)
         cipher = AES.new(self._symmetric_key, AES.MODE_CBC, iv)
@@ -272,7 +273,7 @@ class _ROSBagAesCbcEncryptor(_ROSBagEncryptor):
         @raise ROSBagFormatException: if GPG key user is not found in header
         """
         try:
-            self._encrypted_symmetric_key = _read_str_field(header, self._ENCRYPTED_KEY_FIELD_NAME)
+            self._encrypted_symmetric_key = _read_bytes_field(header, self._ENCRYPTED_KEY_FIELD_NAME)
         except ROSBagFormatException:
             raise ROSBagFormatException('Encrypted symmetric key is not found in header')
         try:
@@ -303,7 +304,7 @@ class _ROSBagAesCbcEncryptor(_ROSBagEncryptor):
                 v = v.encode()
             header_str += _pack_uint32(len(k) + 1 + len(v)) + k + equal + v
 
-        iv = Random.new().read(AES.block_size)
+        iv = random.getrandbits(AES.block_size)
         enc_str = iv
         cipher = AES.new(self._symmetric_key, AES.MODE_CBC, iv)
         enc_str += cipher.encrypt(_add_padding(header_str))
@@ -349,7 +350,7 @@ class _ROSBagAesCbcEncryptor(_ROSBagEncryptor):
     def _build_symmetric_key(self):
         if not self._gpg_key_user:
             return
-        self._symmetric_key = Random.new().read(AES.block_size)
+        self._symmetric_key = random.getrandbits(AES.block_size)
         self._encrypted_symmetric_key = _encrypt_string_gpg(self._gpg_key_user, self._symmetric_key)
 
     def _decrypt_encrypted_header(self, f):
@@ -390,7 +391,7 @@ def _decrypt_string_gpg(input):
     dec_data = gpg.decrypt(input, passphrase='clearpath')
     if not dec_data.ok:
         raise ROSBagEncryptException('Failed to decrypt bag: {}.  Have you installed a required private key?'.format(dec_data.status))
-    return str(dec_data)
+    return dec_data.data
 
 class Bag(object):
     """
@@ -1923,6 +1924,7 @@ def _read_uint32(f): return _unpack_uint32(f.read(4))
 def _read_uint64(f): return _unpack_uint64(f.read(8))
 def _read_time  (f): return _unpack_time  (f.read(8))
 
+def _decode_bytes(v):  return v
 def _decode_str(v):    return v if type(v) is str else v.decode()
 def _unpack_uint8(v):  return struct.unpack('<B', v)[0]
 def _unpack_uint32(v): return struct.unpack('<L', v)[0]
@@ -1972,6 +1974,7 @@ def _read_field(header, field, unpack_fn):
     
     return value
 
+def _read_bytes_field (header, field): return _read_field(header, field, _decode_bytes)
 def _read_str_field   (header, field): return _read_field(header, field, _decode_str)
 def _read_uint8_field (header, field): return _read_field(header, field, _unpack_uint8)
 def _read_uint32_field(header, field): return _read_field(header, field, _unpack_uint32)
